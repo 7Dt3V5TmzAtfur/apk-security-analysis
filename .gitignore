@@ -1,8 +1,8 @@
 # APK 文件（体积大，涉及版权）
-*.apk
+# *.apk
 
 # 解包产物
-stream_unpacked/
+# stream_unpacked/
 
 # Python 缓存
 __pycache__/
