@@ -1,0 +1,211 @@
+================================================================================
+                    Stream0520.apk 拆包安全分析报告
+================================================================================
+
+【一、基本信息】
+  文件名:       Stream0520.apk
+  应用名:       Stream抓包
+  包名:         cn.mxcxt.azfietux （随机生成，伪装包名）
+  主Activity:   org.apache.MainActivity （伪装成 Apache 开源项目）
+  真实功能:     WebView套壳应用，加载盗版影视网站
+
+================================================================================
+
+【二、应用真实行为分析】
+
+  1. MainActivity（主入口）
+     - 创建一个全屏 WebView
+     - 加载 URL: https://www.8gdyhd.com （盗版影视网站）
+     - 启用 JavaScript、文件访问、缩放等
+     - 拦截返回键，阻止用户退出应用
+
+  2. BlackActivity（黑名单/锁定页面）
+     - 显示"一键激活"按钮
+     - 拦截返回键和 Home 键，阻止用户退出
+     - 典型的恶意锁屏/欺诈页面
+
+  3. GoogleLogin（Google登录伪装）
+     - 实际用于初始化快手广告SDK
+     - 使用虚假应用名"极速照片恢复"注册广告SDK
+     - 快手广告 AppID: 1131700001
+
+  4. 配置类 (w2/a)
+     - 存储多个快手广告ID:
+       11317000001, 11317000003, 11317000004, 11317000005
+
+================================================================================
+
+【三、嵌入的第三方SDK（数据收集来源）】
+
+  1. 字节跳动/穿山甲广告SDK (Pangle)
+     - com.bytedance.sdk.*
+     - com.ss.android.*
+     - 服务器: pangolin.snssdk.com, tobapplog.ctobsnssdk.com 等
+     - 功能: 设备注册(device_register)、日志上报、A/B测试
+
+  2. 快手广告SDK (Kuaishou Ad)
+     - com.kwad.sdk.*
+     - com.kuaishou.weapon.* （"weapon"武器库，安全检测）
+     - 服务器: open.e.kuaishou.com, static.yximgs.com 等
+     - 功能: 广告加载、动态下载SO库
+
+  3. 腾讯广告SDK (GDT)
+     - com.qq.e.*
+     - 功能: 广告展示
+
+  4. 友盟统计SDK (Umeng)
+     - 原生库: libumeng-spy.so （"spy"=间谍/追踪）
+     - 服务器: ulogs.umeng.com, alogsus.umeng.com, pslog.umeng.com 等
+     - 功能: 用户行为统计、设备信息上报
+
+  5. 字节跳动 EmbedAppLog（应用日志）
+     - com.bytedance.embedapplog.*
+     - 原生库: libtobEmbedEncrypt.so （加密日志）
+     - 功能: 应用内事件追踪
+
+================================================================================
+
+【四、申请的敏感权限】
+
+  android.permission.ACCESS_COARSE_LOCATION    -- 粗略定位
+  android.permission.ACCESS_FINE_LOCATION      -- 精确定位(GPS)
+  android.permission.READ_PHONE_STATE          -- 读取手机状态(IMEI等)
+  android.permission.READ_EXTERNAL_STORAGE     -- 读取外部存储
+  android.permission.WRITE_EXTERNAL_STORAGE    -- 写入外部存储
+  android.permission.GET_TASKS                 -- 获取运行中任务
+  android.permission.QUERY_ALL_PACKAGES        -- 查询所有已安装应用
+  android.permission.REQUEST_INSTALL_PACKAGES  -- 请求安装应用
+  android.permission.ACCESS_WIFI_STATE         -- WiFi状态
+  android.permission.ACCESS_NETWORK_STATE      -- 网络状态
+  com.asus.msa.SupplementaryDID.ACCESS         -- 华硕设备ID
+
+================================================================================
+
+【五、个人信息收集风险评估】
+
+  [高风险] 设备标识符收集:
+    代码中包含: IMEI, IMSI, ICCID, Android ID, 设备序列号(Serial),
+    getDeviceId(), getSubscriberId(), getSimSerialNumber()
+    → 这些通过广告SDK和友盟统计SDK收集并上传
+
+  [高风险] 位置信息收集:
+    代码中包含: getLastKnownLocation(), getLatitude(), getLongitude(), GPS
+    → 通过广告SDK收集用于精准广告投放
+
+  [中风险] 已安装应用列表:
+    代码中包含: getInstalledPackages(), QUERY_ALL_PACKAGES 权限
+    → 用于用户画像和广告定向
+
+  [中风险] 剪贴板访问:
+    代码中包含: ClipboardManager, clipboard
+    → 可能读取剪贴板内容
+
+  [中风险] Root/环境检测:
+    代码中包含: root, su, magisk, xposed 检测
+    → 检测设备是否被Root或安装了Xposed框架
+
+  [已确认安全] 联系人/短信/相机/麦克风/通话记录/日历:
+    ★ 深度验证结论：该应用不访问上述任何敏感数据 ★
+    
+    验证方法：
+    1. AndroidManifest 权限声明检查：
+       READ_CONTACTS    → 未声明
+       READ_SMS         → 未声明
+       SEND_SMS         → 未声明
+       RECEIVE_SMS      → 未声明
+       CAMERA           → 未声明
+       RECORD_AUDIO     → 未声明
+       READ_CALL_LOG    → 未声明
+       READ_CALENDAR    → 未声明
+       → 没有声明权限，Android 系统层面直接阻止访问
+    
+    2. DEX 字节码深度扫描：
+       sendTextMessage / SmsMessage / content://sms → 0 处调用
+       ContactsContract / content://contacts        → 0 处调用
+       content://call_log / content://calendar       → 0 处调用
+       → 代码中不存在任何短信/通讯录/通话记录/日历的读写操作
+    
+    3. ContentProvider 查询分析：
+       所有 getContentResolver() 调用仅用于：
+       - Settings.System/Secure/Global（读取系统设置）
+       - 各厂商 OAID 接口（Meizu/Vivo 广告ID）
+       - MediaStore.Files（文件访问）
+       → 无任何通讯录/短信数据库查询
+    
+    4. 唯一相关引用：
+       com.kuaishou.weapon.p0.h1 中出现 "READ_CONTACTS" 字符串
+       → 这是快手"武器"安全模块的权限检测功能，仅检查权限是否存在
+       → 并非实际读取通讯录
+    
+    结论：该应用完全不涉及联系人、短信、相机、麦克风等敏感数据的窃取
+
+================================================================================
+
+【六、网络通信服务器列表】
+
+  广告/统计相关:
+    https://pangolin.snssdk.com              -- 穿山甲广告
+    https://pangolin16.snssdk.com             -- 穿山甲广告(备用)
+    https://is.snssdk.com                     -- 字节跳动数据
+    https://i.snssdk.com                      -- 字节跳动统计
+    https://bds.snssdk.com                    -- 字节跳动业务
+    https://sdfp.snssdk.com                   -- 字节跳动设备指纹
+    https://toblog.ctobsnssdk.com             -- 字节跳动日志(含设备注册)
+    https://tobapplog.ctobsnssdk.com          -- 字节跳动应用日志
+    https://api-access.pangolin-sdk-toutiao.com -- 穿山甲API
+    https://open.e.kuaishou.com               -- 快手广告API
+    https://static.yximgs.com                 -- 快手静态资源(动态下载)
+    https://ulogs.umeng.com                   -- 友盟统计日志
+    https://alogsus.umeng.com                 -- 友盟统计(美国)
+    https://pslog.umeng.com                   -- 友盟统计
+    https://aaid.umeng.com                    -- 友盟广告ID
+
+  主功能网站:
+    https://www.8gdyhd.com                    -- 盗版影视网站(WebView加载)
+    https://www.chengzijianzhan.com           -- 字节跳动橙子建站(落地页)
+
+================================================================================
+
+【七、原生库(.so)分析】
+
+  libumeng-spy.so       -- 友盟"间谍"追踪库（数据收集+上报）
+  libtobEmbedEncrypt.so -- 字节跳动加密日志库
+  libEncryptor.so       -- 加密库
+  libbuffer_pg.so       -- 穿山甲缓冲库
+  libfile_lock_pg.so    -- 穿山甲文件锁
+  libnms.so             -- 穿山甲NMS
+  libsgcore.so          -- 穿山甲核心库
+
+================================================================================
+
+【八、综合结论】
+
+  ⚠️ 这是一个【高风险】的 WebView 套壳应用，存在以下问题：
+
+  1. 【伪装欺骗】应用名为"Stream抓包"，但实际功能只是一个加载盗版影视
+     网站的 WebView 壳，不具备任何抓包功能。类名伪装成 org.apache.*。
+
+  2. 【个人信息收集】通过嵌入的 5 个第三方 SDK（穿山甲、快手、腾讯广告、
+     友盟统计、字节跳动日志），大量收集用户个人信息并上传至多个服务器：
+     - 设备标识符（IMEI、IMSI、Android ID、序列号等）
+     - GPS 精确位置
+     - 已安装应用列表
+     - 设备指纹信息
+     - 用户行为日志
+
+  3. 【恶意行为】
+     - 拦截返回键和 Home 键，阻止用户正常退出
+     - BlackActivity 显示"一键激活"欺诈页面
+     - 使用虚假应用名"极速照片恢复"注册广告SDK
+     - 包名随机生成(cn.mxcxt.azfietux)，典型的恶意软件特征
+
+  4. 【动态加载】快手广告SDK会从服务器动态下载 .apk/.so 文件并加载，
+     存在代码注入和执行任意代码的风险。
+
+  5. 【盗版内容】主功能是加载盗版影视网站 www.8gdyhd.com，涉及侵权。
+
+  ⛔ 建议：立即卸载此应用，不要在任何设备上使用！
+
+================================================================================
+                              分析完成
+================================================================================
